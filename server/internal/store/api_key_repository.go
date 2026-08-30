@@ -44,7 +44,7 @@ type APIKey struct {
 	QuotaWeeklyUsed            float64         `gorm:"type:numeric(18,8);default:0;not null"`
 	QuotaWeeklyUnlimited       bool            `gorm:"default:true;not null"`
 	QuotaWeeklyWindowStart     *time.Time
-	AutoResetOAuthConnectionID *uuid.UUID
+	AutoResetOAuthConnectionID *uuid.UUID `gorm:"type:uuid;column:auto_reset_oauth_connection_id"`
 	AutoResetLastResetAt       *time.Time
 	CreatedByAdminID           *uuid.UUID
 	LastUsedAt                 *time.Time

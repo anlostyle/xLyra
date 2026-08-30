@@ -279,13 +279,8 @@ func ensureSchemaUpgrades(ctx context.Context, db *gorm.DB) error {
 			return fmt.Errorf("ensure api_keys quota column %s: %w", field, err)
 		}
 	}
-	for _, field := range []string{"AutoResetOAuthConnectionID", "AutoResetLastResetAt"} {
-		if migrator.HasColumn(&APIKey{}, field) {
-			continue
-		}
-		if err := migrator.AddColumn(&APIKey{}, field); err != nil {
-			return fmt.Errorf("ensure api_keys auto reset column %s: %w", field, err)
-		}
+	if err := ensureAPIKeyAutoResetColumns(db, migrator); err != nil {
+		return err
 	}
 	if err := ensureSchemaIndex(migrator, &APIKey{}, "api_keys_auto_reset_oauth_connection_id_idx"); err != nil {
 		return err
@@ -564,6 +559,48 @@ func ensureSchemaIndex(migrator gorm.Migrator, model any, name string) error {
 	}
 	if err := migrator.CreateIndex(model, name); err != nil {
 		return fmt.Errorf("ensure %s index: %w", name, err)
+	}
+	return nil
+}
+
+func ensureAPIKeyAutoResetColumns(db *gorm.DB, migrator gorm.Migrator) error {
+	const (
+		canonicalColumn = "auto_reset_oauth_connection_id"
+		legacyColumn    = "auto_reset_o_auth_connection_id"
+	)
+
+	hasCanonical := migrator.HasColumn(&APIKey{}, canonicalColumn)
+	if !hasCanonical && migrator.HasColumn(&APIKey{}, legacyColumn) {
+		if err := db.Exec("ALTER TABLE api_keys RENAME COLUMN auto_reset_o_auth_connection_id TO auto_reset_oauth_connection_id").Error; err != nil {
+			return fmt.Errorf("ensure api_keys auto reset column name: %w", err)
+		}
+		hasCanonical = true
+	}
+	if !hasCanonical {
+		if err := migrator.AddColumn(&APIKey{}, "AutoResetOAuthConnectionID"); err != nil {
+			return fmt.Errorf("ensure api_keys auto reset column AutoResetOAuthConnectionID: %w", err)
+		}
+	}
+	if !migrator.HasColumn(&APIKey{}, "AutoResetLastResetAt") {
+		if err := migrator.AddColumn(&APIKey{}, "AutoResetLastResetAt"); err != nil {
+			return fmt.Errorf("ensure api_keys auto reset column AutoResetLastResetAt: %w", err)
+		}
+	}
+
+	columnTypes, err := migrator.ColumnTypes(&APIKey{})
+	if err != nil {
+		return fmt.Errorf("inspect api_keys auto reset column type: %w", err)
+	}
+	for _, column := range columnTypes {
+		if !strings.EqualFold(column.Name(), canonicalColumn) {
+			continue
+		}
+		if strings.EqualFold(column.DatabaseTypeName(), "text") || strings.EqualFold(column.DatabaseTypeName(), "varchar") {
+			if err := db.Exec("ALTER TABLE api_keys ALTER COLUMN auto_reset_oauth_connection_id TYPE uuid USING NULLIF(auto_reset_oauth_connection_id, '')::uuid").Error; err != nil {
+				return fmt.Errorf("ensure api_keys auto reset column type: %w", err)
+			}
+		}
+		break
 	}
 	return nil
 }
