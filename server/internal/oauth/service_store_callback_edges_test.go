@@ -190,6 +190,49 @@ func TestRefreshCodexConnectionMarksReconnectRequiredOnRefreshFailureOffline(t *
 	}
 }
 
+func TestRefreshCodexConnectionPreservesQuotaMetadataOffline(t *testing.T) {
+	t.Parallel()
+
+	connectionID := uuid.New()
+	bootstrap := NewService(nil, "master-key")
+	encryptedRefresh, _, err := bootstrap.credentials.Encrypt("refresh-token")
+	if err != nil {
+		t.Fatalf("encrypt refresh token: %v", err)
+	}
+	connection := store.OAuthConnection{
+		ID:                    connectionID,
+		Provider:              codexProvider,
+		Status:                "connected",
+		EncryptedRefreshToken: encryptedRefresh,
+		Metadata:              store.JSON(`{"quota":{"weekly":{"reset_at":1788143235}},"token_mode":"oauth_refresh"}`),
+	}
+	var saved store.OAuthConnection
+	service := oauthServiceWithQueryUpdate(t, func(tx *gorm.DB) {
+		item := tx.Statement.Dest.(*store.OAuthConnection)
+		*item = connection
+		tx.Statement.RowsAffected = 1
+	}, func(tx *gorm.DB) {
+		saved = *tx.Statement.Dest.(*store.OAuthConnection)
+		tx.Statement.RowsAffected = 1
+	})
+	idToken := importValidationIDToken(t, `{"email":"user@example.com","https://api.openai.com/auth":{"chatgpt_account_id":"acct_123","chatgpt_plan_type":"plus","chatgpt_user_id":"user_123"}}`)
+	service.httpClient = &http.Client{Transport: oauthRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return oauthHTTPResponse(http.StatusOK, `{"access_token":"access","refresh_token":"refresh","id_token":"`+idToken+`","expires_in":3600}`), nil
+	})}
+
+	if _, err := service.RefreshCodexConnection(context.Background(), connectionID); err != nil {
+		t.Fatalf("RefreshCodexConnection returned error: %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(saved.Metadata, &metadata); err != nil {
+		t.Fatalf("decode saved metadata: %v", err)
+	}
+	weekly := metadata["quota"].(map[string]any)["weekly"].(map[string]any)
+	if weekly["reset_at"] != float64(1788143235) || metadata["plan_type"] != "plus" {
+		t.Fatalf("saved metadata = %#v, want preserved weekly quota and refreshed claims", metadata)
+	}
+}
+
 func TestRefreshAntigravityConnectionMarksReconnectRequiredOnRefreshFailureOffline(t *testing.T) {
 	t.Parallel()
 
