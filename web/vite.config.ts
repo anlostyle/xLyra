@@ -7,6 +7,19 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// 广告/隐私类内容拦截规则（EasyPrivacy 等）会按文件名拦截 analytics-*.js 之类的请求，
+// 导致 iOS Safari 懒加载页面时报 "Importing a module script failed"，所以产物名里避开这些词
+const BLOCKER_PRONE_CHUNK_WORDS: Array<[RegExp, string]> = [
+  [/analytics/gi, 'usage-stats'],
+  [/tracking/gi, 'flow-trace'],
+  [/telemetry/gi, 'runtime-info'],
+  [/beacon/gi, 'signal'],
+]
+
+function safeChunkName(name: string) {
+  return BLOCKER_PRONE_CHUNK_WORDS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), name)
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -87,6 +100,13 @@ export default defineConfig(({ command, mode }) => {
     ],
     define: {
       'import.meta.env.VITE_BUILD_ID': JSON.stringify(buildTimestamp),
+    },
+    build: {
+      rolldownOptions: {
+        output: {
+          chunkFileNames: (chunk) => `assets/${safeChunkName(chunk.name)}-[hash].js`,
+        },
+      },
     },
     resolve: {
       alias: {
