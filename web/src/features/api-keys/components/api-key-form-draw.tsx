@@ -24,6 +24,7 @@ import type {
   Site,
 } from '@/features/sites/api/sites'
 import type { SiteGroup } from '@/features/settings/api/site-groups'
+import type { OAuthConnectionListItem } from '@/features/oauth/api/oauth'
 
 const CUSTOM_API_KEY_PATTERN = /^[A-Za-z0-9-]+$/
 
@@ -67,6 +68,8 @@ export function APIKeyFormDraw({
   sitesLoading,
   siteGroups,
   siteGroupsLoading,
+  oauthConnections,
+  oauthConnectionsLoading,
   pending,
   onOpenChange,
   onSubmit,
@@ -79,6 +82,8 @@ export function APIKeyFormDraw({
   sitesLoading: boolean
   siteGroups: SiteGroup[]
   siteGroupsLoading: boolean
+  oauthConnections: OAuthConnectionListItem[]
+  oauthConnectionsLoading: boolean
   pending: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (input: APIKeyUpsertInput) => void
@@ -88,6 +93,15 @@ export function APIKeyFormDraw({
   const [advancedExpanded, setAdvancedExpanded] = useState(false)
   const [mappingEntries, setMappingEntries] = useState<ModelRule[]>(() =>
     formValuesFromAPIKey(initialKey).modelMappings.map((rule) => ({ ...rule })),
+  )
+  const autoResetOAuthOptions = useMemo(
+    () => oauthConnections
+      .filter((connection) => (
+        (connection.provider === 'codex' || connection.provider === 'claude_code') &&
+        (connection.status === 'connected' || connection.status === 'pending_sync')
+      ))
+      .sort((left, right) => (left.email ?? left.account_id ?? '').localeCompare(right.email ?? right.account_id ?? '')),
+    [oauthConnections],
   )
   const duplicateMappingKeys = useMemo(() => {
     const seen = new Map<string, number>()
@@ -203,6 +217,10 @@ export function APIKeyFormDraw({
       toast.error(t('form.validation.quotaTooLow', { used: quotaTotalUsed }))
       return
     }
+    if (parsedQuotaLimit == null && values.autoResetOAuthConnectionId) {
+      toast.error(t('form.validation.autoResetQuotaRequired'))
+      return
+    }
 
     const parsedBillingMultiplier = parseBillingMultiplier(values.billingMultiplier)
     if (parsedBillingMultiplier === false) {
@@ -303,6 +321,7 @@ export function APIKeyFormDraw({
       quotaDailyUnlimited: parsedQuotaDailyLimit == null,
       quotaWeeklyLimit: parsedQuotaWeeklyLimit,
       quotaWeeklyUnlimited: parsedQuotaWeeklyLimit == null,
+      autoResetOAuthConnectionId: values.autoResetOAuthConnectionId || null,
       billingMultiplier: parsedBillingMultiplier,
       rateLimit: {
         status: values.rateLimitEnabled ? 'enabled' : 'disabled',
@@ -452,6 +471,36 @@ export function APIKeyFormDraw({
                 value={values.quotaWeeklyLimit}
                 onChange={(quotaWeeklyLimit) => setValues((current) => ({ ...current, quotaWeeklyLimit }))}
               />
+            </FormField>
+            <FormField
+              label={t('form.fields.autoReset')}
+              description={t('form.fields.autoResetDesc')}
+            >
+              <Select
+                value={values.autoResetOAuthConnectionId || 'none'}
+                disabled={oauthConnectionsLoading || parseQuotaLimit(values.quotaLimit) == null}
+                onValueChange={(value) => setValues((current) => ({
+                  ...current,
+                  autoResetOAuthConnectionId: value === 'none' ? '' : value,
+                }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t('form.fields.autoResetNone')} />
+                </SelectTrigger>
+                <SelectContent searchable={false}>
+                  <SelectItem value="none">{t('form.fields.autoResetNone')}</SelectItem>
+                  {autoResetOAuthOptions.map((connection) => (
+                    <SelectItem key={connection.id} value={connection.id}>
+                      {connection.provider} · {connection.email ?? connection.account_id ?? connection.id.slice(0, 8)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {values.autoResetOAuthConnectionId ? (
+                <div className="mt-2 rounded-lg border border-[hsl(var(--glass-border))] bg-[hsl(var(--surface-subtle))] px-3 py-2 text-xs leading-5 text-muted-soft">
+                  {t('form.fields.autoResetSummary')}
+                </div>
+              ) : null}
             </FormField>
           </FormSection>
 

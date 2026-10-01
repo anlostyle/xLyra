@@ -704,3 +704,28 @@ func TestSpaHandlerCacheHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestSpaHandlerMissingAssetsReturn404(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := spaHandler(dir)
+	for _, path := range []string{"/assets/api-keys-OLDHASH.js", "/missing.js", "/missing.css"} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want 404", path, rec.Code)
+		}
+	}
+	for _, path := range []string{"/api-keys", "/agent"} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200 SPA fallback", path, rec.Code)
+		}
+	}
+}

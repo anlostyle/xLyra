@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -835,15 +836,18 @@ func (s *Service) refreshConnectionLocked(ctx context.Context, repo store.OAuthC
 	if err != nil {
 		return CodexConnection{}, err
 	}
-	connectionMeta := map[string]any{
-		"plan_type":                         strings.TrimSpace(claims.AuthInfo.ChatGPTPlanType),
-		"chatgpt_user_id":                   strings.TrimSpace(claims.AuthInfo.ChatGPTUserID),
-		"user_id":                           strings.TrimSpace(claims.AuthInfo.UserID),
-		"chatgpt_subscription_active_start": claims.AuthInfo.ChatGPTSubscriptionActiveStart,
-		"chatgpt_subscription_active_until": claims.AuthInfo.ChatGPTSubscriptionActiveUntil,
-		"refreshable":                       true,
-		"token_mode":                        "oauth_refresh",
+	connectionMeta := map[string]any{}
+	_ = json.Unmarshal(connection.Metadata, &connectionMeta)
+	if connectionMeta == nil {
+		connectionMeta = map[string]any{}
 	}
+	connectionMeta["plan_type"] = strings.TrimSpace(claims.AuthInfo.ChatGPTPlanType)
+	connectionMeta["chatgpt_user_id"] = strings.TrimSpace(claims.AuthInfo.ChatGPTUserID)
+	connectionMeta["user_id"] = strings.TrimSpace(claims.AuthInfo.UserID)
+	connectionMeta["chatgpt_subscription_active_start"] = claims.AuthInfo.ChatGPTSubscriptionActiveStart
+	connectionMeta["chatgpt_subscription_active_until"] = claims.AuthInfo.ChatGPTSubscriptionActiveUntil
+	connectionMeta["refreshable"] = true
+	connectionMeta["token_mode"] = "oauth_refresh"
 	connection.Metadata = jsonBytes(connectionMeta)
 	connection.RawProfile = jsonBytes(rawClaims)
 	connection.Email = strings.TrimSpace(claims.Email)
@@ -1114,13 +1118,92 @@ func (s *Service) UpdateConnectionSync(ctx context.Context, connectionID uuid.UU
 	if len(connection.Metadata) > 0 {
 		_ = json.Unmarshal(connection.Metadata, &meta)
 	}
+	previousWeekly := oauthWeeklyQuotaSnapshot(meta)
 	for key, value := range metadataPatch {
 		meta[key] = value
+	}
+	currentWeekly := oauthWeeklyQuotaSnapshot(meta)
+	if weeklyResetOccurred(previousWeekly, currentWeekly, time.Now()) {
+		if _, err := store.NewAPIKeyRepository(s.db.DB()).ResetTotalForOAuthWeeklyReset(ctx, connectionID, currentWeekly.resetAt, time.Now()); err != nil {
+			return err
+		}
 	}
 	connection.Metadata = jsonBytes(meta)
 	connection.LastSyncAt = sql.NullTime{Time: time.Now(), Valid: true}
 	_, err = repo.Save(ctx, connection)
 	return err
+}
+
+type weeklyQuotaSnapshot struct {
+	resetAt                       time.Time
+	remaining                     float64
+	resetAtOK, remainingPercentOK bool
+}
+
+func oauthWeeklyQuotaSnapshot(metadata map[string]any) weeklyQuotaSnapshot {
+	quota, ok := metadata["quota"].(map[string]any)
+	if !ok {
+		return weeklyQuotaSnapshot{}
+	}
+	weekly, ok := quota["weekly"].(map[string]any)
+	if !ok {
+		return weeklyQuotaSnapshot{}
+	}
+	resetAt, resetAtOK := oauthQuotaResetAt(weekly["reset_at"])
+	remaining, remainingPercentOK := oauthQuotaPercent(weekly["remaining_percent"])
+	return weeklyQuotaSnapshot{resetAt: resetAt, remaining: remaining, resetAtOK: resetAtOK, remainingPercentOK: remainingPercentOK}
+}
+
+func oauthQuotaResetAt(value any) (time.Time, bool) {
+	var number float64
+	switch item := value.(type) {
+	case float64:
+		number = item
+	case int:
+		number = float64(item)
+	case int64:
+		number = float64(item)
+	case string:
+		text := strings.TrimSpace(item)
+		if parsed, err := time.Parse(time.RFC3339Nano, text); err == nil {
+			return parsed, true
+		}
+		parsed, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return time.Time{}, false
+		}
+		number = parsed
+	default:
+		return time.Time{}, false
+	}
+	if number <= 0 {
+		return time.Time{}, false
+	}
+	if number >= 1e12 {
+		return time.UnixMilli(int64(number)), true
+	}
+	return time.Unix(int64(number), 0), true
+}
+
+func oauthQuotaPercent(value any) (float64, bool) {
+	switch item := value.(type) {
+	case float64:
+		return item, true
+	case int:
+		return float64(item), true
+	case int64:
+		return float64(item), true
+	default:
+		return 0, false
+	}
+}
+
+func weeklyResetOccurred(previous, current weeklyQuotaSnapshot, now time.Time) bool {
+	if !previous.resetAtOK || !current.resetAtOK || !current.resetAt.After(previous.resetAt) {
+		return false
+	}
+	return !previous.resetAt.After(now) ||
+		(previous.remainingPercentOK && current.remainingPercentOK && current.remaining > previous.remaining)
 }
 
 func (s *Service) MarkConnectionAccessTokenOnly(ctx context.Context, connectionID uuid.UUID) error {

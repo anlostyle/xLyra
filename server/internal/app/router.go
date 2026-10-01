@@ -651,6 +651,13 @@ func newSPAHandler(staticDir string, authService *auth.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := filepath.Join(staticDir, filepath.Clean("/"+r.URL.Path))
 		info, err := os.Stat(path)
+		if os.IsNotExist(err) && isMissingStaticAsset(r.URL.Path) {
+			// 缺失的静态资源必须 404：回退成 index.html 会让浏览器把 HTML 当作
+			// JS 模块解析，旧缓存页面就会报 "Importing a module script failed"
+			w.Header().Set("Cache-Control", "no-store")
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" || os.IsNotExist(err) {
 			// SPA 回退到 index.html：不进缓存，刷新必须拿到这次发版的页面
 			serveAppIndex(w, r, index, authService)
@@ -673,6 +680,10 @@ func newSPAHandler(staticDir string, authService *auth.Service) http.Handler {
 		}
 		fs.ServeHTTP(w, r)
 	})
+}
+
+func isMissingStaticAsset(urlPath string) bool {
+	return strings.HasPrefix(urlPath, "/assets/") || filepath.Ext(urlPath) != ""
 }
 
 func serveAppIndex(w http.ResponseWriter, r *http.Request, indexPath string, authService *auth.Service) {
