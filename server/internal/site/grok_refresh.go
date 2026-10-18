@@ -80,6 +80,7 @@ func (s *Service) RefreshGrokAccount(ctx context.Context, siteID uuid.UUID, cred
 		updated.Meta = store.JSON(jsonBytes(meta))
 	}
 	account, _ := grokAccountFromStore(updated, state, models)
+	account.Models = s.resolveAccountModelEndpoints(ctx, account.Models)
 	return account, nil
 }
 

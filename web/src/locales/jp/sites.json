@@ -185,7 +185,8 @@
       "glm_code": "GLM Coding Plan API キーで接続",
       "newapi": "自ホストまたはサードパーティパネルにはシステムトークンを使用",
       "xlyra": "アクセストークンまたは単一の下流 API キーで xLyra ゲートウェイに接続",
-      "grok": "xAI アカウントのデバイス認証で Grok に接続（複数アカウント対応）"
+      "grok": "xAI アカウントのデバイス認証で Grok に接続（複数アカウント対応）",
+      "workbuddy": "WorkBuddy（CodeBuddy）アカウントをブラウザログインで接続（複数アカウント対応）"
     },
     "validation": {
       "nameRequired": "サイト名を入力してください",
@@ -210,7 +211,8 @@
       "addHeader": "ヘッダーを追加",
       "removeHeader": "ヘッダーを削除"
     },
-    "grokDeviceHint": "Grok アカウントはサイト作成後に追加します。サイトのアカウントパネルを開き、xAI デバイス認証でログインしてください。"
+    "grokDeviceHint": "Grok アカウントはサイト作成後に追加します。サイトのアカウントパネルを開き、xAI デバイス認証でログインしてください。",
+    "workbuddyLoginHint": "WorkBuddy アカウントはサイト作成後に追加します。サイトのアカウントパネルを開き、ブラウザで WorkBuddy にログインしてください。"
   },
   "apiKeys": {
     "title": "API キー",
@@ -283,6 +285,23 @@
       "syncing": "同期中"
     }
   },
+  "accountModels": {
+    "available": "利用可能なモデル",
+    "backToAccounts": "アカウント一覧に戻る",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "protocol": {
+      "title": "モデルのプロトコル設定",
+      "configure": "プロトコルを設定",
+      "configureLabel": "{{name}} のプロトコルを設定",
+      "description": "このアカウントがこのモデルに使用できるアップストリームプロトコルを選択します。",
+      "namedDescription": "{{name}} にこのアカウントが使用できるアップストリームプロトコルを選択します。",
+      "modeInherit": "サイトのデフォルトプロトコルを使用中",
+      "modeAllowlist": "チェックしたプロトコルのみ使用中",
+      "modeDisabled": "すべてのプロトコルが無効です",
+      "empty": "設定可能なプロトコルがありません"
+    }
+  },
   "grokAccounts": {
     "title": "Grok アカウント",
     "add": "アカウントを追加",
@@ -327,6 +346,60 @@
       "failed": "失敗",
       "reauthRequired": "再認証が必要",
       "stale": "前回同期したモデルを使用中",
+      "partial": "一部",
+      "unknown": "未同期"
+    }
+  },
+  "workbuddyAccounts": {
+    "title": "WorkBuddy アカウント",
+    "add": "アカウントを追加",
+    "loading": "アカウントを読み込み中",
+    "empty": "WorkBuddy アカウントはありません",
+    "unnamed": "WorkBuddy アカウント",
+    "models": "モデル",
+    "refresh": "アカウントを更新",
+    "refreshAll": "すべて更新",
+    "reauthorize": "アカウントを再認証",
+    "delete": "アカウントを削除",
+    "toggleLabel": "{{name}} を切り替え",
+    "cancel": "キャンセル",
+    "toast": {
+      "created": "アカウントを作成しました",
+      "updateFailed": "アカウントの更新に失敗しました",
+      "updated": "アカウントを更新しました",
+      "deleteFailed": "アカウントの削除に失敗しました",
+      "deleted": "アカウントを削除しました",
+      "refreshed": "アカウントを更新しました",
+      "refreshFailed": "アカウントの更新に失敗しました",
+      "refreshedAll": "すべてのアカウントを更新しました",
+      "refreshAllPartial": "一部のアカウントの更新に失敗しました",
+      "refreshAllPartialDesc": "{{count}} 件のアカウントの更新に失敗しました",
+      "refreshAllFailed": "アカウントの一括更新に失敗しました"
+    },
+    "deleteDialog": {
+      "title": "WorkBuddy アカウントを削除",
+      "confirm": "「{{name}}」を削除しますか？ステータス、クォータ、モデルの関連付けも削除されます。",
+      "delete": "削除"
+    },
+    "login": {
+      "title": "WorkBuddy アカウントを追加",
+      "reauthTitle": "WorkBuddy アカウントを再認証",
+      "starting": "ログインリンクを取得中…",
+      "instructions": "開いた WorkBuddy のページでログインし、アクセスを承認してください。このダイアログは自動で続行します。ページが開かない場合は下のボタンを使用してください：",
+      "authorize": "ログインページを開く",
+      "waiting": "ログイン待機中…"
+    },
+    "quota": {
+      "credits": "クレジット",
+      "resetsOn": "{{date}} にリセット",
+      "expiresOn": "{{date}} に期限切れ",
+      "unknown": "クォータ未同期 — アカウントを更新してください"
+    },
+    "sync": {
+      "synced": "同期済み",
+      "failed": "失敗",
+      "reauthRequired": "再認証が必要",
+      "stale": "前回同期したモデルを使用",
       "partial": "一部",
       "unknown": "未同期"
     }

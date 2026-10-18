@@ -514,7 +514,7 @@ func isAPIKeyCredentialType(value string) bool {
 }
 
 func isModelBoundCredentialType(value string) bool {
-	return isAPIKeyCredentialType(value) || strings.HasPrefix(value, "grok_sso:")
+	return isAPIKeyCredentialType(value) || strings.HasPrefix(value, "grok_sso:") || strings.HasPrefix(value, "workbuddy_oauth:")
 }
 
 func isNewAPISite(value string) bool {

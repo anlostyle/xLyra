@@ -255,3 +255,22 @@ describe('Moonshot balance formatting', () => {
     expect(accountBalanceDetails(entries).filter((detail) => detail.label === 'accountBalance')).toEqual([{ label: 'accountBalance', value: amount }])
   })
 })
+
+describe('workbuddy quota summary', () => {
+  const site = {
+    id: 's1',
+    site_type: 'workbuddy',
+    quota_probe: { probe_type: 'workbuddy', status: 'ok', remaining_min: 1999, limit: 2000, unit: 'credits' },
+  } as unknown as Parameters<typeof formatSiteBalance>[0]
+
+  it('shows remaining / limit in whole credits', () => {
+    expect(formatSiteBalance(site)).toBe('1,999 / 2,000')
+  })
+
+  it('lists balance and limit rows', () => {
+    expect(siteBalanceDetails(site)).toEqual([
+      { label: 'accountBalance', value: '1,999 credits' },
+      { label: 'totalLimit', value: '2,000 credits' },
+    ])
+  })
+})

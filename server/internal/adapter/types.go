@@ -267,6 +267,7 @@ func NewRegistry() Registry {
 	registry.Register(NewXLyra())
 	registry.Register(NewGoogle())
 	registry.Register(NewGrok())
+	registry.Register(NewWorkBuddy())
 	registry.Register(NewOpenCodeGo())
 	registry.Register(NewTypeSafe())
 	return registry

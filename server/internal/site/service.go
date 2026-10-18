@@ -495,6 +495,9 @@ func (s *Service) Create(ctx context.Context, params CreateSiteParams) (store.Si
 	if params.SiteType == "grok" {
 		params.BaseURL = adapter.GrokChatBaseURL
 	}
+	if params.SiteType == adapter.WorkBuddySiteType {
+		params.BaseURL = adapter.WorkBuddyBaseURL
+	}
 
 	if params.BaseURL == "" {
 		if module, ok := s.adapters.ModuleForSiteType(params.SiteType); ok {
@@ -605,6 +608,9 @@ func (s *Service) Update(ctx context.Context, params UpdateSiteParams) (store.Si
 	params.BaseURL = strings.TrimRight(strings.TrimSpace(params.BaseURL), "/")
 	if params.SiteType == "grok" {
 		params.BaseURL = adapter.GrokChatBaseURL
+	}
+	if params.SiteType == adapter.WorkBuddySiteType {
+		params.BaseURL = adapter.WorkBuddyBaseURL
 	}
 
 	if params.ID == uuid.Nil {
@@ -1164,8 +1170,10 @@ func (s *Service) syncModelsLocked(ctx context.Context, siteID uuid.UUID) (SyncR
 		return SyncResult{}, fmt.Errorf("site_type %q does not support model sync", site.SiteType)
 	}
 	isGrok := strings.EqualFold(strings.TrimSpace(site.SiteType), "grok")
+	isWorkBuddy := isWorkBuddySiteType(site.SiteType)
+	usesAccountSummary := isGrok || isWorkBuddy
 	summaryFetcher, hasSummaryFetcher := adapter.AsAPIKeySummaryFetcher(module)
-	if isGrok && !hasSummaryFetcher {
+	if usesAccountSummary && !hasSummaryFetcher {
 		return SyncResult{}, fmt.Errorf("site_type %q does not support account summary", site.SiteType)
 	}
 
@@ -1174,7 +1182,7 @@ func (s *Service) syncModelsLocked(ctx context.Context, siteID uuid.UUID) (SyncR
 		return SyncResult{}, err
 	}
 	if len(apiKeys) == 0 {
-		if CredentialTypeForSiteType(site.SiteType) == "grok_sso" {
+		if credentialType := CredentialTypeForSiteType(site.SiteType); credentialType == "grok_sso" || credentialType == "workbuddy_oauth" {
 			return SyncResult{SiteID: site.ID}, nil
 		}
 		return SyncResult{}, fmt.Errorf("site api key is required")
@@ -1201,13 +1209,19 @@ func (s *Service) syncModelsLocked(ctx context.Context, siteID uuid.UUID) (SyncR
 		var err error
 		if isGrok {
 			secret, err = s.oauth.EnsureGrokAccessToken(ctx, apiKey.Credential.ID)
+		} else if isWorkBuddy {
+			secret, _, err = s.oauth.EnsureWorkBuddyAccessToken(ctx, apiKey.Credential.ID)
 		}
 		var models []adapter.Model
+		var accountSummary *adapter.APIKeySummary
 		if err == nil {
-			if isGrok {
+			if usesAccountSummary {
 				var summary adapter.APIKeySummary
 				summary, err = summaryFetcher.SummarizeAPIKey(ctx, s.toAdapterSite(ctx, site), secret)
 				models = summary.Models
+				if err == nil {
+					accountSummary = &summary
+				}
 			} else {
 				models, err = modelLister.ListModels(ctx, s.toAdapterSite(ctx, site), secret)
 			}
@@ -1219,13 +1233,13 @@ func (s *Service) syncModelsLocked(ctx context.Context, siteID uuid.UUID) (SyncR
 			keyEnabled := apiKey.Enabled
 			keySyncStatus := "failed"
 			failure := upstream.ClassifyError(err)
-			if isGrok && shouldReauthorizeGrokCredential(err) {
+			if (isGrok && shouldReauthorizeGrokCredential(err)) || (isWorkBuddy && shouldReauthorizeWorkBuddyCredential(err)) {
 				permanentKeyErrors++
 				keyEnabled = false
 				apiKey.Meta["enabled"] = false
 				apiKey.Meta["reauth_required"] = true
 				if _, metaErr := updateCredentialMeta(ctx, credentialRepo, apiKey.Credential.ID, apiKey.Meta); metaErr != nil {
-					return SyncResult{}, fmt.Errorf("mark grok account for reauthorization: %w", metaErr)
+					return SyncResult{}, fmt.Errorf("mark oauth account for reauthorization: %w", metaErr)
 				}
 			} else if failure.CredentialInvalid() {
 				permanentKeyErrors++
@@ -1238,17 +1252,24 @@ func (s *Service) syncModelsLocked(ctx context.Context, siteID uuid.UUID) (SyncR
 			} else {
 				recoverableKeyError = err
 			}
-			if strings.EqualFold(strings.TrimSpace(site.SiteType), "grok") {
+			if isGrok {
 				keySyncStatus = grokRefreshFailureStatus(err)
+			} else if isWorkBuddy {
+				keySyncStatus = workBuddyRefreshFailureStatus(err)
 			}
-			if _, stateErr := apiKeyStateRepo.Upsert(ctx, store.UpsertSiteAPIKeyStateParams{
+			failureParams := store.UpsertSiteAPIKeyStateParams{
 				SiteCredentialID: apiKey.Credential.ID,
 				SiteID:           siteID,
 				Enabled:          keyEnabled,
 				SyncStatus:       keySyncStatus,
 				SyncMessage:      err.Error(),
 				LastSyncedAt:     now,
-			}); stateErr != nil {
+			}
+			if isWorkBuddy {
+				// A failed refresh must not wipe the last known quota.
+				keepWorkBuddyStateQuota(&failureParams, grokAccountState(ctx, s.db.DB(), apiKey.Credential.ID))
+			}
+			if _, stateErr := apiKeyStateRepo.Upsert(ctx, failureParams); stateErr != nil {
 				return SyncResult{}, fmt.Errorf("save api key auth failure state: %w", stateErr)
 			}
 			if !keyEnabled {
@@ -1269,13 +1290,17 @@ func (s *Service) syncModelsLocked(ctx context.Context, siteID uuid.UUID) (SyncR
 		s.recoverCredentialCooldownAfterRefresh(ctx, site.ID, apiKey.Credential.ID)
 		syncedCredentialIDs = append(syncedCredentialIDs, apiKey.Credential.ID)
 		now := time.Now()
-		if _, stateErr := apiKeyStateRepo.Upsert(ctx, store.UpsertSiteAPIKeyStateParams{
+		syncedParams := store.UpsertSiteAPIKeyStateParams{
 			SiteCredentialID: apiKey.Credential.ID,
 			SiteID:           siteID,
 			Enabled:          apiKey.Enabled,
 			SyncStatus:       "synced",
 			LastSyncedAt:     now,
-		}); stateErr != nil {
+		}
+		if isWorkBuddy && accountSummary != nil {
+			applyWorkBuddySummaryToState(&syncedParams, *accountSummary, apiKey.MaskedSecret)
+		}
+		if _, stateErr := apiKeyStateRepo.Upsert(ctx, syncedParams); stateErr != nil {
 			return SyncResult{}, fmt.Errorf("save api key synced state: %w", stateErr)
 		}
 		if autoDisabledCredential {
@@ -1719,7 +1744,8 @@ func (s *Service) APIKeys(ctx context.Context, siteID uuid.UUID) ([]APIKeyCreden
 }
 
 func (s *Service) modelSyncCredentials(ctx context.Context, site store.Site) ([]APIKeyCredential, error) {
-	if CredentialTypeForSiteType(site.SiteType) != "grok_sso" {
+	credentialType := CredentialTypeForSiteType(site.SiteType)
+	if credentialType != "grok_sso" && credentialType != "workbuddy_oauth" {
 		return s.APIKeys(ctx, site.ID)
 	}
 
@@ -1729,7 +1755,7 @@ func (s *Service) modelSyncCredentials(ctx context.Context, site store.Site) ([]
 	}
 	result := make([]APIKeyCredential, 0, len(credentials))
 	for _, credential := range credentials {
-		if !isGrokCredentialType(credential.CredentialType) {
+		if !isGrokCredentialType(credential.CredentialType) && !isWorkBuddyCredentialType(credential.CredentialType) {
 			continue
 		}
 		account, err := s.apiKeyCredentialFromStore(credential)
@@ -2382,6 +2408,8 @@ func CredentialTypeForSiteType(siteType string) string {
 		return "oauth"
 	case "grok":
 		return "grok_sso"
+	case "workbuddy":
+		return "workbuddy_oauth"
 	default:
 		return "api_key"
 	}

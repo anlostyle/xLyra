@@ -23,6 +23,7 @@ func (s *Service) runCredentialHealthProbe(ctx context.Context, item store.Site,
 
 	adapterSite := s.toAdapterSite(ctx, item)
 	isGrok := CredentialTypeForSiteType(item.SiteType) == "grok_sso"
+	isWorkBuddy := isWorkBuddySiteType(item.SiteType)
 	total := 0
 	passed := 0
 	results := make([]map[string]any, 0, len(credentials))
@@ -45,6 +46,9 @@ func (s *Service) runCredentialHealthProbe(ctx context.Context, item store.Site,
 			if isGrok {
 				s.recordGrokRefreshFailure(ctx, credential.Credential, probeErr)
 				status = grokRefreshFailureStatus(probeErr)
+			} else if isWorkBuddy {
+				s.recordWorkBuddyRefreshFailure(ctx, credential.Credential, probeErr)
+				status = workBuddyRefreshFailureStatus(probeErr)
 			}
 			results = append(results, healthProbeCredentialResult(credential, status, probeErr.Error()))
 			continue
@@ -53,11 +57,14 @@ func (s *Service) runCredentialHealthProbe(ctx context.Context, item store.Site,
 		results = append(results, healthProbeCredentialResult(credential, "ok", ""))
 	}
 
-	if isGrok {
+	if isGrok || isWorkBuddy {
 		check.metadata["accounts"] = results
 		check.metadata["accounts_total"] = total
 		check.metadata["accounts_passed"] = passed
 		check.success, check.errorType, check.message = grokHealthOutcome(len(credentials), total, passed)
+		if isWorkBuddy {
+			check.message = strings.ReplaceAll(check.message, "grok", "workbuddy")
+		}
 	} else {
 		check.metadata["credentials"] = results
 		check.metadata["credentials_total"] = total
@@ -71,6 +78,10 @@ func (s *Service) runCredentialHealthProbe(ctx context.Context, item store.Site,
 func (s *Service) resolveHealthProbeCredential(ctx context.Context, item store.Site, credential APIKeyCredential) (string, error) {
 	if CredentialTypeForSiteType(item.SiteType) == "grok_sso" {
 		return s.oauth.EnsureGrokAccessToken(ctx, credential.Credential.ID)
+	}
+	if isWorkBuddySiteType(item.SiteType) {
+		token, _, err := s.oauth.EnsureWorkBuddyAccessToken(ctx, credential.Credential.ID)
+		return token, err
 	}
 	secret := strings.TrimSpace(credential.Secret)
 	if secret == "" {

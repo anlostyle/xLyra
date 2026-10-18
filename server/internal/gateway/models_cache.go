@@ -662,12 +662,15 @@ func gatewayAPIKeyCredentialType(value string) bool {
 }
 
 func gatewayModelCredentialType(value string) bool {
-	return gatewayAPIKeyCredentialType(value) || strings.HasPrefix(value, "grok_sso:")
+	return gatewayAPIKeyCredentialType(value) || strings.HasPrefix(value, "grok_sso:") || strings.HasPrefix(value, workBuddyCredentialTypePrefix)
 }
 
 func gatewayModelCredentialStateUsable(credential store.SiteCredential, state store.SiteAPIKeyState, hasState bool) bool {
 	if strings.HasPrefix(credential.CredentialType, "grok_sso:") {
 		return grokCredentialUsable(credential, state, hasState)
+	}
+	if strings.HasPrefix(credential.CredentialType, workBuddyCredentialTypePrefix) {
+		return workBuddyCredentialUsable(credential, state, hasState)
 	}
 	return store.CredentialStateUsableForCredential(credential, state)
 }

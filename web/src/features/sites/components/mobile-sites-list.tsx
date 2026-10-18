@@ -15,6 +15,7 @@ import {
   formatRelativeDateTime,
   formatRoutingPriority,
   formatSiteBalance,
+  isAccountLoginSiteType,
   isOAuthSite,
   isSub2APIQuotaSite,
   isSiteEnableBlockedByAbnormalState,
@@ -178,7 +179,7 @@ function MobileSiteCard({
   const oauth = isOAuthSite(site)
   const icon = siteTypeIcon(site.site_type, siteTypes) || site.icon_url
   const modelCount = siteModelsDisplayCount(site, models, apiKeys)
-  const isGrok = site.site_type === 'grok'
+  const isGrok = isAccountLoginSiteType(site.site_type)
   const keyInfo = oauth || isGrok ? null : { enabled: apiKeys.filter((key) => key.enabled).length, total: apiKeys.length || site.api_key_count || 0 }
   const usage = site.usage
   const totalTokens = usage?.total_tokens ?? 0

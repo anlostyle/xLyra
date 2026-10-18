@@ -1277,7 +1277,7 @@ func (h Handler) resolveSiteCredentials(w http.ResponseWriter, r *http.Request, 
 	credType := sitepkg.CredentialTypeForSiteType(payload.SiteType)
 
 	switch credType {
-	case "grok_sso":
+	case "grok_sso", "workbuddy_oauth":
 		return nil, true
 	case "system_token":
 		if payload.NewAPI == nil || strings.TrimSpace(payload.NewAPI.AccessToken) == "" || payload.NewAPI.UserID <= 0 {

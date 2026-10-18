@@ -123,6 +123,10 @@ func (s *Service) RefreshState(ctx context.Context, siteID uuid.UUID) (RefreshRe
 
 	if fresh, err := s.Get(ctx, siteID); err == nil {
 		probed := s.runQuotaProbes(ctx, fresh)
+		if isWorkBuddySiteType(fresh.SiteType) {
+			// WorkBuddy has no site-level probe; its quota is the sum of its accounts.
+			probed = s.syncWorkBuddyQuotaSummary(ctx, fresh.ID, probed)
+		}
 		if refreshErr == nil {
 			result.Site = probed
 		}
@@ -717,6 +721,11 @@ func (s *Service) refreshModelOnlyState(ctx context.Context, item store.Site) (R
 		if err != nil {
 			return RefreshResult{}, err
 		}
+	} else if isWorkBuddySiteType(item.SiteType) {
+		apiKeyCount, err = s.workBuddySiteAccountCount(ctx, item.ID)
+		if err != nil {
+			return RefreshResult{}, err
+		}
 	}
 	pricingSnapshot := adapter.PricingSnapshot{}
 	pricingGroups := []store.SitePricingGroup{}
@@ -1136,6 +1145,11 @@ func (s *Service) RefreshSingleAPIKey(ctx context.Context, siteID uuid.UUID, cre
 		if err != nil {
 			return RefreshSingleAPIKeyResult{}, fmt.Errorf("grok access token: %w", err)
 		}
+	} else if isWorkBuddySiteType(site.SiteType) {
+		apiKey, _, err = s.oauth.EnsureWorkBuddyAccessToken(ctx, credential.ID)
+		if err != nil {
+			return RefreshSingleAPIKeyResult{}, fmt.Errorf("workbuddy access token: %w", err)
+		}
 	}
 	if apiKey == "" || strings.HasPrefix(apiKey, "missing-api-key") {
 		return RefreshSingleAPIKeyResult{}, fmt.Errorf("raw api key is not available for this credential")
@@ -1302,6 +1316,8 @@ func (s *Service) syncSiteModelsFromAPIKeyState(ctx context.Context, siteID uuid
 			capabilities = codexSiteModelCapabilities(rawCapabilitiesByModel[name], name)
 		} else if strings.EqualFold(strings.TrimSpace(siteType), "grok") {
 			capabilities = grokSiteModelCapabilities(rawCapabilitiesByModel[name], name)
+		} else if isWorkBuddySiteType(siteType) {
+			capabilities = workBuddySiteModelCapabilities(rawCapabilitiesByModel[name])
 		} else if strings.EqualFold(strings.TrimSpace(siteType), "opencode_go") {
 			var capabilityErr error
 			capabilities, capabilityErr = openCodeGoSiteModelCapabilities(rawCapabilitiesByModel[name], name)
@@ -1417,6 +1433,21 @@ func grokSiteModelCapabilities(raw store.JSON, modelName string) []byte {
 		return []byte(`{"source":"grok"}`)
 	}
 	return encoded
+}
+
+func workBuddySiteModelCapabilities(raw store.JSON) []byte {
+	capabilities := map[string]any{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &capabilities)
+	}
+	if capabilities == nil {
+		capabilities = map[string]any{}
+	}
+	capabilities["source"] = "workbuddy"
+	if len(stringSliceFromPricingRaw(capabilities["supported_endpoint_types"])) == 0 {
+		capabilities["supported_endpoint_types"] = []string{"openai"}
+	}
+	return jsonBytes(capabilities)
 }
 
 func openCodeGoSiteModelCapabilities(raw store.JSON, modelName string) ([]byte, error) {

@@ -17,6 +17,7 @@ import {
   formatDateTime,
   formatRelativeDateTime,
   formatRoutingPriority,
+  isAccountLoginSiteType,
   isOAuthSite,
   isSiteEnableBlockedByAbnormalState,
   siteAccountEmail,
@@ -143,7 +144,7 @@ export function SitesTable({
         const models = modelsMap[site.id] ?? EMPTY_MODELS
         const keys = apiKeysMap[site.id] ?? EMPTY_API_KEYS
         const modelCount = siteModelsDisplayCount(site, models, keys)
-        const isGrok = site.site_type === 'grok'
+        const isGrok = isAccountLoginSiteType(site.site_type)
         const keyInfo = isOAuthSite(site) || isGrok ? null : { enabled: keys.filter((key) => key.enabled).length, total: keys.length || site.api_key_count || 0 }
         return (
           <div className="flex items-center justify-center gap-1 text-footnote tabular-nums whitespace-nowrap">

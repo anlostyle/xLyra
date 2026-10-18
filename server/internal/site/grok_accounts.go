@@ -20,10 +20,21 @@ type GrokAccountUpdate struct {
 	Enabled *bool
 }
 
+// GrokAccountModel is one model of an OAuth account (Grok and WorkBuddy share
+// it). The endpoint fields mirror the API key model payload so the same
+// protocol editor works for accounts.
 type GrokAccountModel struct {
-	UpstreamName string `json:"upstream_name"`
-	DisplayName  string `json:"display_name"`
-	Enabled      bool   `json:"enabled"`
+	UpstreamName           string                                `json:"upstream_name"`
+	DisplayName            string                                `json:"display_name"`
+	Enabled                bool                                  `json:"enabled"`
+	SiteModelID            string                                `json:"site_model_id,omitempty"`
+	SupportedEndpointTypes []string                              `json:"supported_endpoint_types"`
+	EffectiveEndpointTypes []string                              `json:"effective_endpoint_types"`
+	AvailableEndpointTypes []string                              `json:"available_endpoint_types"`
+	EndpointOverride       store.SiteAPIKeyModelEndpointOverride `json:"endpoint_override"`
+
+	// record is the stored row, used to resolve the effective protocols.
+	record store.SiteAPIKeyModel
 }
 
 type GrokAccount struct {
@@ -67,6 +78,7 @@ func (s *Service) ListGrokAccounts(ctx context.Context, siteID uuid.UUID) ([]Gro
 	for _, credential := range credentials {
 		account, ok := grokAccountFromStore(credential, statesByCredential[credential.ID], modelsByCredential[credential.ID])
 		if ok {
+			account.Models = s.resolveAccountModelEndpoints(ctx, account.Models)
 			accounts = append(accounts, account)
 		}
 	}
@@ -134,6 +146,7 @@ func (s *Service) UpdateGrokAccount(ctx context.Context, siteID uuid.UUID, crede
 	state := grokAccountState(ctx, s.db.DB(), credentialID)
 	models, _ := store.NewSiteAPIKeyModelRepository(s.db.DB()).ListByCredential(ctx, credentialID)
 	account, _ := grokAccountFromStore(updated, state, models)
+	account.Models = s.resolveAccountModelEndpoints(ctx, account.Models)
 	return account, nil
 }
 
@@ -171,6 +184,24 @@ func (s *Service) SetGrokAccountModelEnabled(ctx context.Context, siteID uuid.UU
 	state := grokAccountState(ctx, s.db.DB(), credentialID)
 	models, _ := store.NewSiteAPIKeyModelRepository(s.db.DB()).ListByCredential(ctx, credentialID)
 	account, _ := grokAccountFromStore(updated, state, models)
+	account.Models = s.resolveAccountModelEndpoints(ctx, account.Models)
+	return account, nil
+}
+
+// SetGrokAccountModelEndpoint adjusts the protocols one account may use for a
+// model (the same override the API key model dialog edits).
+func (s *Service) SetGrokAccountModelEndpoint(ctx context.Context, siteID uuid.UUID, credentialID uuid.UUID, siteModelID uuid.UUID, mode string, endpointTypes []string) (GrokAccount, error) {
+	if err := s.requireGrokSite(ctx, siteID); err != nil {
+		return GrokAccount{}, err
+	}
+	credential, err := s.setAccountModelEndpointOverride(ctx, siteID, credentialID, siteModelID, mode, endpointTypes, isGrokCredentialType)
+	if err != nil {
+		return GrokAccount{}, err
+	}
+	state := grokAccountState(ctx, s.db.DB(), credentialID)
+	models, _ := store.NewSiteAPIKeyModelRepository(s.db.DB()).ListByCredential(ctx, credentialID)
+	account, _ := grokAccountFromStore(credential, state, models)
+	account.Models = s.resolveAccountModelEndpoints(ctx, account.Models)
 	return account, nil
 }
 
@@ -278,6 +309,7 @@ func (s *Service) CompleteGrokDeviceLogin(ctx context.Context, siteID uuid.UUID,
 	state := grokAccountState(ctx, s.db.DB(), credential.ID)
 	models, _ := store.NewSiteAPIKeyModelRepository(s.db.DB()).ListByCredential(ctx, credential.ID)
 	account, _ := grokAccountFromStore(credential, state, models)
+	account.Models = s.resolveAccountModelEndpoints(ctx, account.Models)
 	return account, nil
 }
 
@@ -365,11 +397,7 @@ func grokAccountFromStore(credential store.SiteCredential, state store.SiteAPIKe
 		if display == "" || adapter.IsGrokImageModel(model.UpstreamModelName) {
 			display = model.UpstreamModelName
 		}
-		accountModels = append(accountModels, GrokAccountModel{
-			UpstreamName: model.UpstreamModelName,
-			DisplayName:  display,
-			Enabled:      model.Enabled,
-		})
+		accountModels = append(accountModels, newAccountModel(model, display))
 	}
 	account := GrokAccount{
 		CredentialID: credential.ID,

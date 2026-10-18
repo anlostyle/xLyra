@@ -7,7 +7,7 @@ export type SiteTypeInfo = {
   display_name: string
   subtitle: string
   credential_key: string
-  credential_type: 'api_key' | 'system_token' | 'oauth' | 'xlyra' | 'grok_sso'
+  credential_type: 'api_key' | 'system_token' | 'oauth' | 'xlyra' | 'grok_sso' | 'workbuddy_oauth'
   requires_base_url: boolean
   official_base_url?: string
   show_in_create_dialog: boolean
@@ -391,10 +391,40 @@ export type SiteAPIKeyModel = {
   }
 }
 
-export type GrokAccountModel = {
+/** One model of an OAuth account (Grok / WorkBuddy). Mirrors SiteAPIKeyModel's protocol fields. */
+export type AccountModel = {
   upstream_name: string
   display_name: string
   enabled: boolean
+  site_model_id?: string
+  supported_endpoint_types?: string[]
+  effective_endpoint_types?: string[]
+  available_endpoint_types?: string[]
+  endpoint_override?: {
+    mode?: 'inherit' | 'allowlist' | 'disabled'
+    endpoint_types?: string[]
+  }
+}
+
+export type GrokAccountModel = AccountModel
+
+/** Toggle a model and/or adjust the protocols an account may use for it. */
+export type AccountModelUpdate = {
+  model?: string
+  enabled?: boolean
+  siteModelId?: string
+  endpointMode?: 'inherit' | 'allowlist' | 'disabled'
+  endpointTypes?: string[]
+}
+
+function accountModelBody(input: AccountModelUpdate) {
+  return {
+    ...(input.model === undefined ? {} : { model: input.model }),
+    ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+    ...(input.siteModelId === undefined ? {} : { site_model_id: input.siteModelId }),
+    ...(input.endpointMode === undefined ? {} : { endpoint_mode: input.endpointMode }),
+    ...(input.endpointTypes === undefined ? {} : { endpoint_types: input.endpointTypes }),
+  }
 }
 
 export type GrokAccount = {
@@ -408,6 +438,39 @@ export type GrokAccount = {
   used_quota?: number | null
   model_count?: number
   models?: GrokAccountModel[]
+}
+
+export type WorkBuddyQuotaPackage = {
+  name: string
+  size: number
+  remaining: number
+  recurring: boolean
+  cycle_end?: string
+  expires_at?: string
+}
+
+export type WorkBuddyAccount = {
+  credential_id: string
+  masked_token: string
+  enabled: boolean
+  sync_status?: string | null
+  sync_message?: string | null
+  model_count?: number
+  models?: GrokAccountModel[]
+  /** Credits. Filled after the account has been refreshed once. */
+  remaining_quota?: number | null
+  used_quota?: number | null
+  quota_limit?: number | null
+  quota_unit?: string
+  quota_packages?: WorkBuddyQuotaPackage[]
+}
+
+export type WorkBuddyAccountsResponse = {
+  items: WorkBuddyAccount[]
+  meta?: {
+    count?: number
+    failed?: number
+  }
 }
 
 export type GrokAccountsResponse = {
@@ -1018,13 +1081,13 @@ export async function updateGrokAccount(
 export async function updateGrokAccountModel(
   siteId: string,
   credentialId: string,
-  input: { model: string; enabled: boolean },
+  input: AccountModelUpdate,
 ) {
   return apiFetch<{ account: GrokAccount }>(
     `/api/v1/sites/${siteId}/grok/accounts/${credentialId}/models`,
     {
       method: 'PUT',
-      body: input,
+      body: accountModelBody(input),
     },
   )
 }
@@ -1084,6 +1147,96 @@ export async function pollGrokDeviceLogin(siteId: string, deviceCode: string, cr
     {
       method: 'POST',
       body: { device_code: deviceCode, ...(credentialId ? { credential_id: credentialId } : {}) },
+    },
+  )
+}
+
+export async function listWorkBuddyAccounts(siteId: string) {
+  return apiFetch<WorkBuddyAccountsResponse>(`/api/v1/sites/${siteId}/workbuddy/accounts`)
+}
+
+export async function updateWorkBuddyAccount(
+  siteId: string,
+  credentialId: string,
+  input: { enabled?: boolean },
+) {
+  return apiFetch<{ account: WorkBuddyAccount }>(
+    `/api/v1/sites/${siteId}/workbuddy/accounts/${credentialId}`,
+    {
+      method: 'PUT',
+      body: { enabled: input.enabled },
+    },
+  )
+}
+
+export async function updateWorkBuddyAccountModel(
+  siteId: string,
+  credentialId: string,
+  input: AccountModelUpdate,
+) {
+  return apiFetch<{ account: WorkBuddyAccount }>(
+    `/api/v1/sites/${siteId}/workbuddy/accounts/${credentialId}/models`,
+    {
+      method: 'PUT',
+      body: accountModelBody(input),
+    },
+  )
+}
+
+export async function deleteWorkBuddyAccount(siteId: string, credentialId: string) {
+  return apiFetch<void>(
+    `/api/v1/sites/${siteId}/workbuddy/accounts/${credentialId}`,
+    {
+      method: 'DELETE',
+    },
+  )
+}
+
+export async function refreshWorkBuddyAccount(siteId: string, credentialId: string) {
+  return apiFetch<{ account: WorkBuddyAccount }>(
+    `/api/v1/sites/${siteId}/workbuddy/accounts/${credentialId}/refresh`,
+    {
+      method: 'POST',
+    },
+  )
+}
+
+export async function refreshWorkBuddyAccounts(siteId: string) {
+  return apiFetch<WorkBuddyAccountsResponse>(
+    `/api/v1/sites/${siteId}/workbuddy/accounts/refresh`,
+    {
+      method: 'POST',
+    },
+  )
+}
+
+/** WorkBuddy uses a browser login: open `auth_url`, then poll with `state`. */
+export type WorkBuddyLoginStart = {
+  state: string
+  auth_url: string
+  interval: number
+  expires_at: string
+}
+
+export type WorkBuddyLoginPollResult =
+  | { status: 'pending' }
+  | { status: 'complete'; account: WorkBuddyAccount }
+
+export async function startWorkBuddyLogin(siteId: string) {
+  return apiFetch<{ login: WorkBuddyLoginStart }>(
+    `/api/v1/sites/${siteId}/workbuddy/login/start`,
+    {
+      method: 'POST',
+    },
+  )
+}
+
+export async function pollWorkBuddyLogin(siteId: string, state: string, credentialId?: string) {
+  return apiFetch<{ login: WorkBuddyLoginPollResult }>(
+    `/api/v1/sites/${siteId}/workbuddy/login/poll`,
+    {
+      method: 'POST',
+      body: { state, ...(credentialId ? { credential_id: credentialId } : {}) },
     },
   )
 }

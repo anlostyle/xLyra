@@ -101,6 +101,10 @@ func TestRegistryRegistersDefaultModulesBySiteType(t *testing.T) {
 			wantType:         "adapter.Grok",
 			wantCapabilities: []Capability{CapabilityHealthProbe, CapabilityValidateCredential, CapabilityListModels, CapabilitySummarizeAPIKey},
 		},
+		"workbuddy": {
+			wantType:         "adapter.WorkBuddy",
+			wantCapabilities: []Capability{CapabilityHealthProbe, CapabilityValidateCredential, CapabilityListModels, CapabilitySummarizeAPIKey},
+		},
 		"opencode_go": {
 			wantType:         "adapter.OpenCodeGo",
 			wantCapabilities: []Capability{CapabilityHealthProbe, CapabilityListModels},
@@ -138,8 +142,8 @@ func TestRegistryRegistersDefaultModulesBySiteType(t *testing.T) {
 	}
 
 	modules := registry.Modules()
-	if len(modules) != 13 {
-		t.Fatalf("default module count = %d, want 13", len(modules))
+	if len(modules) != 14 {
+		t.Fatalf("default module count = %d, want 14", len(modules))
 	}
 	modules[0] = nil
 	fresh := registry.Modules()

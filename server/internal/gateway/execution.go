@@ -327,6 +327,31 @@ func (h Handler) forwardGatewayRequest(
 			}
 			upstreamKey = accessToken
 		}
+		if isWorkBuddySite(candidate.Site.SiteType) {
+			accessToken, domain, refreshErr := h.oauth.EnsureWorkBuddyAccessToken(ctx, selectedCredential.Credential.ID)
+			if refreshErr != nil {
+				if errors.Is(refreshErr, oauthsvc.ErrWorkBuddyReauthorizationRequired) {
+					h.markGrokCredentialReauthRequired(ctx, selectedCredential.Credential, refreshErr.Error())
+				}
+				result.statusCode = http.StatusBadGateway
+				result.errorType = "workbuddy_oauth_refresh_failed"
+				result.errorMessage = refreshErr.Error()
+				result.latencyMS = time.Since(startedAt).Milliseconds()
+				result = recordCredentialAttempt(result, nil, true)
+				lastResult = result
+				if result.credentialDecision.ShouldTryNextCredential {
+					if releaseCredentialSelection != nil {
+						releaseCredentialSelection()
+					}
+					continue
+				}
+				return result
+			}
+			upstreamKey = accessToken
+			// accountID is the per-account value handed to the protocol's
+			// header hook; for WorkBuddy it is the tenant domain.
+			accountID = domain
+		}
 
 		payload, err := protocol.BuildUpstreamPayload(request, candidate)
 		if err != nil {
@@ -416,6 +441,9 @@ func (h Handler) forwardGatewayRequest(
 		if isGrokSite(candidate.Site.SiteType) {
 			applyGrokGatewayHeaders(req, upstreamKey, candidate.Model.UpstreamName)
 		}
+		if isWorkBuddySite(candidate.Site.SiteType) {
+			applyWorkBuddyGatewayHeaders(req, upstreamKey, accountID)
+		}
 		if isClaudeCodeSite(candidate.Site.SiteType) {
 			applyClaudeCodeOAuthGatewayHeaders(req, upstreamKey)
 		}
@@ -482,7 +510,7 @@ func (h Handler) forwardGatewayRequest(
 			result.errorType = transportErrorType(err)
 			result.errorMessage = err.Error()
 			result.latencyMS = time.Since(startedAt).Milliseconds()
-			result = recordCredentialAttempt(result, nil, isGrokSite(candidate.Site.SiteType))
+			result = recordCredentialAttempt(result, nil, isGrokSite(candidate.Site.SiteType) || isWorkBuddySite(candidate.Site.SiteType))
 			if releaseCredentialSelection != nil {
 				releaseCredentialSelection()
 			}
@@ -501,6 +529,9 @@ func (h Handler) forwardGatewayRequest(
 			result = h.handleStreamResponse(ctx, w, requestID, apiKeyID, canonicalModelID, candidate, protocol, resp, result, startedAt)
 			if isGrokSite(candidate.Site.SiteType) {
 				h.markGrokCredentialSyncFailed(ctx, selectedCredential.Credential, result)
+			}
+			if isWorkBuddySite(candidate.Site.SiteType) {
+				h.markWorkBuddyCredentialSyncFailed(ctx, selectedCredential.Credential, result)
 			}
 			if !request.Diagnostic {
 				h.markCredentialModelUnavailableAfterNotFound(ctx, candidate, selectedCredential.Credential, result)
@@ -524,6 +555,9 @@ func (h Handler) forwardGatewayRequest(
 		result = h.handleBufferedResponse(ctx, requestID, apiKeyID, canonicalModelID, candidate, protocol, resp, result, startedAt)
 		if isGrokSite(candidate.Site.SiteType) {
 			h.markGrokCredentialSyncFailed(ctx, selectedCredential.Credential, result)
+		}
+		if isWorkBuddySite(candidate.Site.SiteType) {
+			h.markWorkBuddyCredentialSyncFailed(ctx, selectedCredential.Credential, result)
 		}
 		if !request.Diagnostic {
 			h.markCredentialModelUnavailableAfterNotFound(ctx, candidate, selectedCredential.Credential, result)

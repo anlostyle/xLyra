@@ -193,7 +193,8 @@
       "glm_code": "Connect with a GLM Coding Plan API key",
       "newapi": "Use a system token for a self-hosted or third-party panel",
       "xlyra": "Connect an xLyra gateway with an access token or one downstream API key",
-      "grok": "Connect Grok via xAI account device authorization (multi-account)"
+      "grok": "Connect Grok via xAI account device authorization (multi-account)",
+      "workbuddy": "Connect WorkBuddy (CodeBuddy) accounts via browser login (multi-account)"
     },
     "validation": {
       "nameRequired": "Please enter a site name",
@@ -219,7 +220,8 @@
       "addHeader": "Add Header",
       "removeHeader": "Remove Header"
     },
-    "grokDeviceHint": "Grok accounts are added after the site is created — open the site's account panel and sign in with the xAI device flow."
+    "grokDeviceHint": "Grok accounts are added after the site is created — open the site's account panel and sign in with the xAI device flow.",
+    "workbuddyLoginHint": "WorkBuddy accounts are added after the site is created — open the site's account panel and sign in to WorkBuddy in your browser."
   },
   "apiKeys": {
     "title": "API Key",
@@ -292,6 +294,23 @@
       "syncing": "Syncing"
     }
   },
+  "accountModels": {
+    "available": "Available models",
+    "backToAccounts": "Back to accounts",
+    "cancel": "Cancel",
+    "save": "Save",
+    "protocol": {
+      "title": "Model protocols",
+      "configure": "Configure protocols",
+      "configureLabel": "Configure protocols for {{name}}",
+      "description": "Choose which upstream protocols this account may use for the model.",
+      "namedDescription": "Choose which upstream protocols this account may use for {{name}}.",
+      "modeInherit": "Using the site's default protocols",
+      "modeAllowlist": "Using only the checked protocols",
+      "modeDisabled": "All protocols are disabled",
+      "empty": "This model has no configurable protocols"
+    }
+  },
   "grokAccounts": {
     "title": "Grok Accounts",
     "add": "Add account",
@@ -330,6 +349,60 @@
       "instructions": "Enter this code on the xAI authorization page, then approve access:",
       "authorize": "Open authorization page",
       "waiting": "Waiting for approval…"
+    },
+    "sync": {
+      "synced": "Synced",
+      "failed": "Failed",
+      "reauthRequired": "Reauthorization required",
+      "stale": "Using last synced models",
+      "partial": "Partial",
+      "unknown": "Not synced"
+    }
+  },
+  "workbuddyAccounts": {
+    "title": "WorkBuddy Accounts",
+    "add": "Add account",
+    "loading": "Loading accounts",
+    "empty": "No WorkBuddy accounts",
+    "unnamed": "WorkBuddy account",
+    "models": "Models",
+    "refresh": "Refresh account",
+    "refreshAll": "Refresh all",
+    "reauthorize": "Reauthorize account",
+    "delete": "Delete account",
+    "toggleLabel": "Toggle {{name}}",
+    "cancel": "Cancel",
+    "toast": {
+      "created": "Account created",
+      "updateFailed": "Failed to update account",
+      "updated": "Account updated",
+      "deleteFailed": "Failed to delete account",
+      "deleted": "Account deleted",
+      "refreshed": "Account refreshed",
+      "refreshFailed": "Failed to refresh account",
+      "refreshedAll": "All accounts refreshed",
+      "refreshAllPartial": "Some accounts failed to refresh",
+      "refreshAllPartialDesc": "{{count}} account(s) failed to refresh",
+      "refreshAllFailed": "Failed to refresh accounts"
+    },
+    "deleteDialog": {
+      "title": "Delete WorkBuddy account",
+      "confirm": "Delete {{name}}? Its status, quota, and model associations will also be removed.",
+      "delete": "Delete"
+    },
+    "login": {
+      "title": "Add WorkBuddy account",
+      "reauthTitle": "Reauthorize WorkBuddy account",
+      "starting": "Requesting login link…",
+      "instructions": "Sign in and approve access on the WorkBuddy page that just opened; this dialog continues automatically. If nothing opened, use the button below:",
+      "authorize": "Open login page",
+      "waiting": "Waiting for login…"
+    },
+    "quota": {
+      "credits": "Credits",
+      "resetsOn": "resets {{date}}",
+      "expiresOn": "expires {{date}}",
+      "unknown": "Quota not synced yet — refresh the account"
     },
     "sync": {
       "synced": "Synced",

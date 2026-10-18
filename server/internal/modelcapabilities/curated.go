@@ -146,7 +146,7 @@ func UsesModelNameEndpointInference(siteType string) bool {
 		"opencode_go",
 		"deepseek", "minimax", "xiaomi_mimo", "moonshot", "kimi_code",
 		"google", "google_gemini", "zhipu", "glm_code",
-		"typesafe":
+		"typesafe", "workbuddy":
 		return false
 	default:
 		return true

@@ -394,6 +394,9 @@ func (h Handler) forwardSiteModelTestRequest(
 	if isGrokSite(candidate.Site.SiteType) {
 		applyGrokGatewayHeaders(req, upstreamKey, candidate.Model.UpstreamName)
 	}
+	if isWorkBuddySite(candidate.Site.SiteType) {
+		applyWorkBuddyGatewayHeaders(req, upstreamKey, accountID)
+	}
 	if isClaudeCodeSite(candidate.Site.SiteType) {
 		applyClaudeCodeOAuthGatewayHeaders(req, upstreamKey)
 	}
@@ -466,6 +469,17 @@ func (h Handler) siteModelTestCredential(ctx context.Context, candidate routeeng
 			return "", "", "", credential.Credential.ID, "", "grok_oauth_refresh_failed", err
 		}
 		return accessToken, "", credential.Credential.MaskedSecret, credential.Credential.ID, credential.GroupName.String, "", nil
+	}
+	if isWorkBuddySite(candidate.Site.SiteType) {
+		if h.oauth == nil {
+			return "", "", "", uuid.Nil, "", "workbuddy_oauth_unavailable", fmt.Errorf("oauth service is not available")
+		}
+		accessToken, domain, err := h.oauth.EnsureWorkBuddyAccessToken(ctx, credential.Credential.ID)
+		if err != nil {
+			return "", "", "", credential.Credential.ID, "", "workbuddy_oauth_refresh_failed", err
+		}
+		// The second value is the per-account header argument; for WorkBuddy it is the tenant domain.
+		return accessToken, domain, credential.Credential.MaskedSecret, credential.Credential.ID, credential.GroupName.String, "", nil
 	}
 	upstreamKey, err := h.credentials.Decrypt(credential.Credential.EncryptedSecret)
 	if err != nil {

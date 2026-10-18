@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, KeyRound, LoaderCircle, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { ExternalLink, KeyRound, LoaderCircle, RefreshCw, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Switch } from '@/components/ui/switch'
-import { ModelsDraw, type ModelsDrawItem } from '@/components/common/models-draw'
+import {
+  AccountHeaderActions,
+  AccountList,
+  AccountModelsDialog,
+  AccountRow,
+  AccountsListDialog,
+} from '@/features/sites/components/account-dialogs'
+import { useNestedDialogClassNames } from '@/features/sites/components/use-nested-dialog'
 import { toast } from '@/lib/toast'
 import {
   deleteGrokAccount,
@@ -19,6 +24,7 @@ import {
   startGrokDeviceLogin,
   updateGrokAccount,
   updateGrokAccountModel,
+  type AccountModelUpdate,
   type GrokAccount,
   type GrokDeviceStart,
   type Site,
@@ -47,6 +53,8 @@ export function GrokAccountsDraw({
   const [device, setDevice] = useState<DeviceState | null>(null)
   const [modelsAccount, setModelsAccount] = useState<GrokAccount | null>(null)
   const open = Boolean(site)
+  const nestedZ = useNestedDialogClassNames()
+  const nestedOpen = Boolean(device) || Boolean(deleting) || Boolean(modelsAccount)
   const queryKey = site
     ? [...sitesQueryKeys.detail(site.id), 'grok-accounts']
     : [...sitesQueryKeys.all, 'grok-accounts', 'none']
@@ -118,13 +126,36 @@ export function GrokAccountsDraw({
   })
 
   const updateModelMutation = useMutation({
-    mutationFn: ({ credentialId, model, enabled }: { credentialId: string; model: string; enabled: boolean }) => {
+    mutationFn: ({ credentialId, update }: { credentialId: string; update: AccountModelUpdate }) => {
       if (!site) throw new Error('site required')
-      return updateGrokAccountModel(site.id, credentialId, { model, enabled })
+      return updateGrokAccountModel(site.id, credentialId, update)
     },
     onSuccess: async (result) => {
       setModelsAccount((current) => (current?.credential_id === result.account.credential_id ? result.account : current))
       await refreshAccountQueries()
+    },
+    onError: (error) => toast.error(t('grokAccounts.toast.updateFailed'), { description: error.message }),
+  })
+
+  const bulkModelMutation = useMutation({
+    mutationFn: async ({ credentialId, models, enabled }: { credentialId: string; models: string[]; enabled: boolean }) => {
+      if (!site) throw new Error('site required')
+      let latest: Awaited<ReturnType<typeof updateGrokAccountModel>> | null = null
+      let firstError: Error | null = null
+      for (const model of models) {
+        try {
+          latest = await updateGrokAccountModel(site.id, credentialId, { model, enabled })
+        } catch (error) {
+          firstError ??= error instanceof Error ? error : new Error(String(error))
+        }
+      }
+      if (!latest) throw firstError ?? new Error('no models to update')
+      return { latest, firstError }
+    },
+    onSuccess: async ({ latest, firstError }) => {
+      setModelsAccount((current) => (current?.credential_id === latest.account.credential_id ? latest.account : current))
+      await refreshAccountQueries()
+      if (firstError) toast.error(t('grokAccounts.toast.updateFailed'), { description: firstError.message })
     },
     onError: (error) => toast.error(t('grokAccounts.toast.updateFailed'), { description: error.message }),
   })
@@ -180,114 +211,108 @@ export function GrokAccountsDraw({
 
   return (
     <>
-      <Sheet open={open} onOpenChange={(next) => {
-        if (!next) {
-          setDeleting(null)
-          setDevice(null)
-        }
-        onOpenChange(next)
-      }}>
-        <SheetContent>
-          <SheetHeader className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <SheetTitle>{t('grokAccounts.title')}</SheetTitle>
-            <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center">
-              <Button size="sm" variant="secondary" className="w-full min-[420px]:w-auto" disabled={refreshAllMutation.isPending} onClick={() => refreshAllMutation.mutate()}>
-                {refreshAllMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}{t('grokAccounts.refreshAll')}
-              </Button>
-              <Button size="sm" className="w-full min-[420px]:w-auto" disabled={Boolean(device)} onClick={() => startDeviceLogin('add')}>
-                <Plus className="h-4 w-4" />{t('grokAccounts.add')}
-              </Button>
-            </div>
-          </SheetHeader>
-          <SheetBody>
-            {accountsQuery.isLoading ? (
-              <p className="py-10 text-center text-body text-label-2">{t('grokAccounts.loading')}</p>
-            ) : accountsQuery.isError ? (
-              <p className="py-10 text-center text-body text-danger">{accountsQuery.error.message}</p>
-            ) : items.length ? (
-              <div className="space-y-3">
-                {items.map((account) => {
-                  const refreshing = refreshMutation.isPending && refreshMutation.variables?.credential_id === account.credential_id
-                  const syncBadge = grokSyncBadge(account.sync_status)
-                  const reauthRequired = account.sync_status?.toLowerCase() === 'reauth_required'
-                  return (
-                    <div key={account.credential_id} className="mat-regular space-y-3 rounded-card p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 space-y-1.5">
-                          <span className="block truncate text-body font-medium text-label">{account.masked_token || t('grokAccounts.unnamed')}</span>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {account.tier ? <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{account.tier}</Badge> : null}
-                            <Badge variant="secondary" className={`px-1.5 py-0 text-[10px] ${syncBadge.className}`}>{syncBadge.label(t)}</Badge>
-                          </div>
-                        </div>
-                        <Switch
-                          checked={account.enabled}
-                          disabled={updateMutation.isPending || reauthRequired}
-                          aria-label={t('grokAccounts.toggleLabel', { name: account.masked_token || t('grokAccounts.unnamed') })}
-                          onCheckedChange={(enabled) => updateMutation.mutate({ account, enabled })}
-                        />
-                      </div>
-
-                      {account.sync_message ? <p className="text-footnote text-danger">{account.sync_message}</p> : null}
-
-                      <div className="flex items-center justify-between text-footnote text-label-2">
-                        <div className="flex items-center gap-3">
-                          <span>-</span>
-                          <button type="button" className="hover:text-label cursor-pointer" onClick={() => setModelsAccount(account)}>
-                            {account.model_count ?? account.models?.length ?? 0} {t('grokAccounts.models')}
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {reauthRequired ? (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-danger"
-                              disabled={Boolean(device)}
-                              title={t('grokAccounts.reauthorize')}
-                              aria-label={t('grokAccounts.reauthorize')}
-                              onClick={() => startDeviceLogin('reauth', account.credential_id)}
-                            >
-                              <KeyRound className="h-3.5 w-3.5" />
-                            </Button>
-                          ) : null}
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            disabled={refreshing}
-                            title={t('grokAccounts.refresh')}
-                            aria-label={t('grokAccounts.refresh')}
-                            onClick={() => refreshMutation.mutate(account)}
-                          >
-                            {refreshing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-danger hover:bg-danger/10 hover:text-danger"
-                            disabled={deleteMutation.isPending}
-                            title={t('grokAccounts.delete')}
-                            aria-label={t('grokAccounts.delete')}
-                            onClick={() => setDeleting(account)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="py-10 text-center text-body text-label-2">{t('grokAccounts.empty')}</p>
-            )}
-          </SheetBody>
-        </SheetContent>
-      </Sheet>
+      <AccountsListDialog
+        open={open}
+        title={t('grokAccounts.title')}
+        nestedOpen={nestedOpen}
+        onCloseInnermost={() => {
+          if (device) setDevice(null)
+          else if (deleting) setDeleting(null)
+          else if (modelsAccount) setModelsAccount(null)
+        }}
+        onOpenChange={(next) => {
+          if (!next) {
+            setDeleting(null)
+            setDevice(null)
+            setModelsAccount(null)
+          }
+          onOpenChange(next)
+        }}
+        headerActions={(
+          <AccountHeaderActions
+            addLabel={t('grokAccounts.add')}
+            addDisabled={Boolean(device)}
+            onAdd={() => startDeviceLogin('add')}
+            refreshAllLabel={t('grokAccounts.refreshAll')}
+            refreshingAll={refreshAllMutation.isPending}
+            onRefreshAll={() => refreshAllMutation.mutate()}
+          />
+        )}
+      >
+        {accountsQuery.isLoading ? (
+          <p className="py-10 text-center text-body text-label-2">{t('grokAccounts.loading')}</p>
+        ) : accountsQuery.isError ? (
+          <p className="py-10 text-center text-body text-danger">{accountsQuery.error.message}</p>
+        ) : items.length ? (
+          <AccountList>
+            {items.map((account) => {
+              const refreshing = refreshMutation.isPending && refreshMutation.variables?.credential_id === account.credential_id
+              const syncBadge = grokSyncBadge(account.sync_status)
+              const reauthRequired = account.sync_status?.toLowerCase() === 'reauth_required'
+              const name = account.masked_token || t('grokAccounts.unnamed')
+              return (
+                <AccountRow
+                  key={account.credential_id}
+                  name={name}
+                  badges={<Badge variant="secondary" className={`shrink-0 px-1.5 py-0 text-[10px] ${syncBadge.className}`}>{syncBadge.label(t)}</Badge>}
+                  enabled={account.enabled}
+                  toggleDisabled={updateMutation.isPending || reauthRequired}
+                  toggleLabel={t('grokAccounts.toggleLabel', { name })}
+                  onToggle={(enabled) => updateMutation.mutate({ account, enabled })}
+                  pills={account.tier ? <Badge variant="neutral">{account.tier}</Badge> : undefined}
+                  message={account.sync_message || undefined}
+                  modelCountLabel={`${account.model_count ?? account.models?.length ?? 0} ${t('accountModels.available')}`}
+                  onOpenModels={() => setModelsAccount(account)}
+                  actions={(
+                    <>
+                      {reauthRequired ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-danger"
+                          disabled={Boolean(device)}
+                          title={t('grokAccounts.reauthorize')}
+                          aria-label={t('grokAccounts.reauthorize')}
+                          onClick={() => startDeviceLogin('reauth', account.credential_id)}
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        disabled={refreshing}
+                        title={t('grokAccounts.refresh')}
+                        aria-label={t('grokAccounts.refresh')}
+                        onClick={() => refreshMutation.mutate(account)}
+                      >
+                        {refreshing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-danger hover:bg-danger/10 hover:text-danger"
+                        disabled={deleteMutation.isPending}
+                        title={t('grokAccounts.delete')}
+                        aria-label={t('grokAccounts.delete')}
+                        onClick={() => setDeleting(account)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
+                />
+              )
+            })}
+          </AccountList>
+        ) : (
+          <p className="py-10 text-center text-body text-label-2">{t('grokAccounts.empty')}</p>
+        )}
+      </AccountsListDialog>
 
       <Dialog open={Boolean(device)} onOpenChange={(next) => { if (!next) setDevice(null) }}>
-        <DialogContent presentation="center" className="w-[min(92vw,520px)] overflow-hidden">
+        <DialogContent presentation="center" size="sm" overlayClassName={nestedZ.overlayClassName} className={nestedZ.className}>
           <DialogHeader className="border-b-0 pb-2"><DialogTitle>{t(device?.purpose === 'reauth' ? 'grokAccounts.device.reauthTitle' : 'grokAccounts.device.title')}</DialogTitle></DialogHeader>
           <DialogBody className="space-y-4 pt-0">
             {device?.status === 'starting' ? (
@@ -314,7 +339,7 @@ export function GrokAccountsDraw({
       </Dialog>
 
       <Dialog open={Boolean(deleting)} onOpenChange={(next) => { if (!next && !deleteMutation.isPending) setDeleting(null) }}>
-        <DialogContent presentation="center" className="w-[min(92vw,520px)] overflow-hidden">
+        <DialogContent presentation="center" size="sm" overlayClassName={nestedZ.overlayClassName} className={nestedZ.className}>
           <DialogHeader className="border-b-0 pb-2"><DialogTitle>{t('grokAccounts.deleteDialog.title')}</DialogTitle></DialogHeader>
           <DialogBody className="pt-0">
             <DialogDescription className="mt-0">{t('grokAccounts.deleteDialog.confirm', { name: deleting?.masked_token || t('grokAccounts.unnamed') })}</DialogDescription>
@@ -331,21 +356,29 @@ export function GrokAccountsDraw({
         </DialogContent>
       </Dialog>
 
-      <ModelsDraw
+      <AccountModelsDialog
         key={activeModelsAccount?.credential_id ?? 'grok-account-models'}
         open={Boolean(activeModelsAccount)}
-        title={activeModelsAccount ? `${activeModelsAccount.masked_token} ${t('grokAccounts.models')}` : t('grokAccounts.models')}
-        items={(activeModelsAccount?.models ?? []).map<ModelsDrawItem>((model) => ({
-          id: model.upstream_name,
-          displayName: model.display_name || model.upstream_name,
-          upstreamName: model.upstream_name,
-          enabled: model.enabled,
-        }))}
-        pendingItemId={updateModelMutation.isPending ? updateModelMutation.variables?.model : undefined}
-        onToggleItem={(item, enabled) => {
-          if (activeModelsAccount) updateModelMutation.mutate({ credentialId: activeModelsAccount.credential_id, model: item.id, enabled })
+        title={activeModelsAccount ? `${activeModelsAccount.masked_token} ${t('accountModels.available')}` : t('accountModels.available')}
+        models={activeModelsAccount?.models ?? []}
+        backLabel={t('accountModels.backToAccounts')}
+        pendingModel={updateModelMutation.isPending ? updateModelMutation.variables?.update.model : undefined}
+        bulkPending={bulkModelMutation.isPending}
+        protocolPending={updateModelMutation.isPending && Boolean(updateModelMutation.variables?.update.endpointMode)}
+        onBack={() => setModelsAccount(null)}
+        onClose={() => setModelsAccount(null)}
+        onToggleModel={(model, enabled) => {
+          if (!activeModelsAccount) return
+          updateModelMutation.mutate({ credentialId: activeModelsAccount.credential_id, update: { model: model.upstream_name, enabled } })
         }}
-        onOpenChange={(next) => { if (!next) setModelsAccount(null) }}
+        onBulkToggle={(models, enabled) => {
+          if (!activeModelsAccount) return
+          bulkModelMutation.mutate({ credentialId: activeModelsAccount.credential_id, models, enabled })
+        }}
+        onSaveProtocol={(update) => {
+          if (!activeModelsAccount) return
+          updateModelMutation.mutate({ credentialId: activeModelsAccount.credential_id, update })
+        }}
       />
     </>
   )

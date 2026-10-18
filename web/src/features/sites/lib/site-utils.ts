@@ -129,7 +129,17 @@ export function siteTypeColor(siteType: string): string | null {
   if (type === 'zhipu' || type === 'glm_code') return '#3859ff'
   if (type === 'newapi') return '#878ce5'
   if (type === 'xlyra') return '#5d8cc8'
+  if (type === 'workbuddy') return '#0052d9'
   return null
+}
+
+/**
+ * 通过「账号登录」接入、在站点下管理多账号的站点类型（Grok 设备授权、WorkBuddy 网页登录）。
+ * 这类站点没有上游 API Key，资源列显示账号数，并使用各自的账号抽屉。
+ */
+export function isAccountLoginSiteType(siteType: string | null | undefined): boolean {
+  const type = (siteType ?? '').trim().toLowerCase()
+  return type === 'grok' || type === 'workbuddy'
 }
 
 export function siteTypeIconClassName(siteType: string): string | undefined {
@@ -249,8 +259,18 @@ function formatProbePercent(value: number) {
   return `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 1 }).format(Math.max(rounded, 0))}%`
 }
 
+/** WorkBuddy quota is a count of credits; show whole numbers. */
+function formatCreditAmount(value: number) {
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(Math.max(value, 0))
+}
+
 export function formatQuotaProbeBalance(probe: SiteQuotaProbeSummary | null | undefined) {
   if (!probe) return undefined
+  if (probe.probe_type === 'workbuddy') {
+    if (typeof probe.remaining_min !== 'number') return undefined
+    const remaining = formatCreditAmount(probe.remaining_min)
+    return typeof probe.limit === 'number' ? `${remaining} / ${formatCreditAmount(probe.limit)}` : remaining
+  }
   if (probe.probe_type === 'deepseek' || probe.probe_type === 'moonshot') {
     return formatAccountBalance(probe.entries)
   }
@@ -361,6 +381,12 @@ export function siteBalanceDetails(site: Site, language?: string): SiteBalanceDe
     if (probeType === 'deepseek' || probeType === 'moonshot') return accountBalanceDetails(probe.entries)
     if (probeType === 'kimi' || probeType === 'glm') {
       return fiveHourWeeklyQuotaDetails(probe, language)
+    }
+    if (probeType === 'workbuddy') {
+      if (typeof probe.remaining_min !== 'number') return []
+      const rows: SiteBalanceDetail[] = [{ label: 'accountBalance', value: `${formatCreditAmount(probe.remaining_min)} credits` }]
+      if (typeof probe.limit === 'number') rows.push({ label: 'totalLimit', value: `${formatCreditAmount(probe.limit)} credits` })
+      return rows
     }
     const { prefix, suffix } = quotaProbeCurrency(probe.unit)
     const amount = (value: number) => `${prefix}${formatProbeAmount(value)}${suffix}`

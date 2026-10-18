@@ -64,6 +64,7 @@ import { ChannelSplitDialog } from '@/features/usage/components/channel-split-di
 import type { ChannelSplitTarget } from '@/features/usage/api/channel-split'
 import { SiteAPIKeysDraw } from '@/features/sites/components/site-api-keys-draw'
 import { GrokAccountsDraw } from '@/features/sites/components/grok-accounts-draw'
+import { WorkBuddyAccountsDraw } from '@/features/sites/components/workbuddy-accounts-draw'
 import {
   SiteCreateDialog,
   type SiteCreateSubmitInput,
@@ -84,6 +85,7 @@ import {
 import {
   formatSiteTypeLabel,
   isSiteAbnormal,
+  isAccountLoginSiteType,
   isSiteEnableBlockedByAbnormalState,
   isOAuthSite,
   normalizedSiteTypeFilter,
@@ -142,6 +144,7 @@ export function SitesWorkspace({
   const [testSite, setTestSite] = useState<Site | null>(null)
   const [apiKeysSite, setAPIKeysSite] = useState<Site | null>(null)
   const [grokAccountsSite, setGrokAccountsSite] = useState<Site | null>(null)
+  const [workBuddyAccountsSite, setWorkBuddyAccountsSite] = useState<Site | null>(null)
   const [usageSplitTarget, setUsageSplitTarget] =
     useState<ChannelSplitTarget | null>(null)
   const [urlAPIKeysOpen, setURLAPIKeysOpen] = useState(true)
@@ -231,7 +234,7 @@ export function SitesWorkspace({
     })),
   })
   const sitesWithAPIKeys = useMemo(
-    () => sites.filter((site) => !isOAuthSite(site) && site.site_type !== 'grok'),
+    () => sites.filter((site) => !isOAuthSite(site) && !isAccountLoginSiteType(site.site_type)),
     [sites],
   )
   const siteAPIKeyQueries = useQueries({
@@ -583,6 +586,9 @@ export function SitesWorkspace({
         queryKey: [...sitesQueryKeys.detail(result.site.id), 'grok-accounts'],
       })
       await queryClient.invalidateQueries({
+        queryKey: [...sitesQueryKeys.detail(result.site.id), 'workbuddy-accounts'],
+      })
+      await queryClient.invalidateQueries({
         queryKey: sitesQueryKeys.models(result.site.id),
       })
       await queryClient.invalidateQueries({
@@ -820,7 +826,11 @@ export function SitesWorkspace({
     onDelete: (site: Site) => setDeleteTargetSite(site),
     onOpenModels: setModelsSite,
     onOpenAPIKeys: setAPIKeysSite,
-    onOpenGrokAccounts: setGrokAccountsSite,
+    // Account-login sites share one entry point; dispatch to the matching drawer.
+    onOpenGrokAccounts: (site: Site) =>
+      site.site_type === 'workbuddy'
+        ? setWorkBuddyAccountsSite(site)
+        : setGrokAccountsSite(site),
     onOpenTest: setTestSite,
     onOpenUsageSplit: (site: Site) =>
       setUsageSplitTarget({ type: 'site', id: site.id }),
@@ -1100,7 +1110,7 @@ export function SitesWorkspace({
           apiKeysSite ??
           (urlAPIKeysOpen &&
           initialURLTarget.panel === 'api_keys' &&
-          urlTargetSite?.site_type !== 'grok'
+          !isAccountLoginSiteType(urlTargetSite?.site_type)
             ? urlTargetSite
             : null)
         }
@@ -1124,6 +1134,23 @@ export function SitesWorkspace({
         onOpenChange={(open) => {
           if (!open) {
             setGrokAccountsSite(null)
+            setURLAPIKeysOpen(false)
+          }
+        }}
+      />
+
+      <WorkBuddyAccountsDraw
+        site={
+          workBuddyAccountsSite ??
+          (urlAPIKeysOpen &&
+          urlTargetSite?.site_type === 'workbuddy' &&
+          ['api_keys', 'workbuddy_accounts'].includes(initialURLTarget.panel)
+            ? urlTargetSite
+            : null)
+        }
+        onOpenChange={(open) => {
+          if (!open) {
+            setWorkBuddyAccountsSite(null)
             setURLAPIKeysOpen(false)
           }
         }}

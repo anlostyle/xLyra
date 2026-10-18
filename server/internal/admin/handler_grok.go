@@ -72,16 +72,46 @@ func (h Handler) UpdateGrokAccountModel(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	// Same shape as the API key model update: toggle a model and/or adjust the
+	// protocols the account may use for it.
 	var payload struct {
-		Model   string `json:"model"`
-		Enabled bool   `json:"enabled"`
+		Model         string   `json:"model"`
+		SiteModelID   string   `json:"site_model_id"`
+		Enabled       *bool    `json:"enabled"`
+		EndpointMode  string   `json:"endpoint_mode"`
+		EndpointTypes []string `json:"endpoint_types"`
 	}
 	if !h.decodeJSON(w, r, &payload) {
 		return
 	}
-	account, err := h.sites.SetGrokAccountModelEnabled(r.Context(), siteID, credentialID, payload.Model, payload.Enabled)
-	if err != nil {
-		h.writeError(w, r, http.StatusBadRequest, "grok_account_model_update_failed", err.Error())
+	var siteModelID uuid.UUID
+	if strings.TrimSpace(payload.SiteModelID) != "" {
+		parsed, err := uuid.Parse(payload.SiteModelID)
+		if err != nil {
+			h.writeError(w, r, http.StatusBadRequest, "invalid_site_model_id", "site_model_id must be a valid UUID")
+			return
+		}
+		siteModelID = parsed
+	}
+	var account any
+	if strings.TrimSpace(payload.Model) != "" && payload.Enabled != nil {
+		updated, err := h.sites.SetGrokAccountModelEnabled(r.Context(), siteID, credentialID, payload.Model, *payload.Enabled)
+		if err != nil {
+			h.writeError(w, r, http.StatusBadRequest, "grok_account_model_update_failed", err.Error())
+			return
+		}
+		account = updated
+	}
+	if siteModelID != uuid.Nil && (payload.EndpointMode != "" || payload.EndpointTypes != nil) {
+		updated, err := h.sites.SetGrokAccountModelEndpoint(r.Context(), siteID, credentialID, siteModelID, payload.EndpointMode, payload.EndpointTypes)
+		if err != nil {
+			h.writeError(w, r, http.StatusBadRequest, "grok_account_model_endpoint_update_failed", err.Error())
+			return
+		}
+		account = updated
+	}
+	if account == nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_model_update", "model with enabled, or site_model_id with endpoint_mode/endpoint_types is required")
 		return
 	}
 	h.invalidateGatewayModelsCache()
