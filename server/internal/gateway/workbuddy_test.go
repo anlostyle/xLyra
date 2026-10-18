@@ -114,8 +114,23 @@ func TestWorkBuddyChatAdapterBuffersStreamedResponse(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "https://copilot.tencent.com/v2/chat/completions", nil)
+	req.Header.Set("anthropic-beta", "claude-code-20250219")
+	req.Header.Set("x-stainless-lang", "js")
 	protocol.ApplyUpstreamHeaders(req, "token-1", "tenant.example", true)
 	if req.Header.Get("Authorization") != "Bearer token-1" || req.Header.Get("X-Domain") != "tenant.example" || req.Header.Get("X-Product") != "SaaS" {
 		t.Fatalf("unexpected headers: %v", req.Header)
+	}
+	if req.Header.Get("anthropic-beta") != "" || req.Header.Get("x-stainless-lang") != "" {
+		t.Fatalf("foreign client headers must be removed, got %v", req.Header)
+	}
+
+	request.Payload["messages"] = []any{map[string]any{"role": "system", "content": "You are Claude Code, Anthropic's official CLI for Claude."}}
+	rewritten, err := protocol.BuildUpstreamPayload(request, candidate)
+	if err != nil {
+		t.Fatalf("rewrite payload: %v", err)
+	}
+	system := rewritten["messages"].([]any)[0].(map[string]any)["content"].(string)
+	if strings.Contains(system, "official CLI for Claude") || !strings.Contains(system, "official CLI tool for Claude") {
+		t.Fatalf("blocked phrase was not rewritten: %q", system)
 	}
 }

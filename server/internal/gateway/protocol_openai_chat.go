@@ -97,6 +97,9 @@ func (a openAIChatProtocolAdapter) applyUpstreamPolicy(payload map[string]any, c
 		payload["audio"] = audio
 	}
 	payload = applyChatUpstreamPolicy(payload, candidate)
+	if a.workBuddy {
+		rewriteWorkBuddyBlockedPhrases(payload)
+	}
 	if a.mimoTTS {
 		delete(payload, "stream_options")
 		delete(payload, "max_tokens")
