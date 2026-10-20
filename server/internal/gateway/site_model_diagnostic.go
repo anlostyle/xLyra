@@ -364,7 +364,14 @@ func (h Handler) forwardSiteModelTestRequest(
 		return result
 	}
 
-	endpoint := protocol.UpstreamPath(candidate.Site.BaseURL)
+	upstreamBaseURL := candidate.Site.BaseURL
+	if isWorkBuddySite(candidate.Site.SiteType) && selectedCredential != nil && h.oauth != nil {
+		// WorkBuddy accounts live on the China or the international site.
+		if access, accessErr := h.oauth.EnsureWorkBuddyAccess(ctx, selectedCredential.Credential.ID); accessErr == nil {
+			upstreamBaseURL = access.Region.BaseURL
+		}
+	}
+	endpoint := protocol.UpstreamPath(upstreamBaseURL)
 	result.upstreamPath = endpointPath(endpoint)
 	result.upstreamURL = endpoint
 	req, err := newUpstreamHTTPRequest(ctx, protocol, endpoint, body)
@@ -482,12 +489,12 @@ func (h Handler) siteModelTestCredential(ctx context.Context, candidate routeeng
 		if h.oauth == nil {
 			return "", "", "", uuid.Nil, "", "workbuddy_oauth_unavailable", fmt.Errorf("oauth service is not available")
 		}
-		accessToken, domain, err := h.oauth.EnsureWorkBuddyAccessToken(ctx, credential.Credential.ID)
+		access, err := h.oauth.EnsureWorkBuddyAccess(ctx, credential.Credential.ID)
 		if err != nil {
 			return "", "", "", credential.Credential.ID, "", "workbuddy_oauth_refresh_failed", err
 		}
 		// The second value is the per-account header argument; for WorkBuddy it is the tenant domain.
-		return accessToken, domain, credential.Credential.MaskedSecret, credential.Credential.ID, credential.GroupName.String, "", nil
+		return access.Token, access.Domain, credential.Credential.MaskedSecret, credential.Credential.ID, credential.GroupName.String, "", nil
 	}
 	upstreamKey, err := h.credentials.Decrypt(credential.Credential.EncryptedSecret)
 	if err != nil {

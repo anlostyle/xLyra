@@ -327,8 +327,11 @@ func (h Handler) forwardGatewayRequest(
 			}
 			upstreamKey = accessToken
 		}
+		// upstreamBaseURL is the site's base URL; WorkBuddy accounts override it with
+		// the host of the site (China / international) they are logged in to.
+		upstreamBaseURL := candidate.Site.BaseURL
 		if isWorkBuddySite(candidate.Site.SiteType) {
-			accessToken, domain, refreshErr := h.oauth.EnsureWorkBuddyAccessToken(ctx, selectedCredential.Credential.ID)
+			access, refreshErr := h.oauth.EnsureWorkBuddyAccess(ctx, selectedCredential.Credential.ID)
 			if refreshErr != nil {
 				if errors.Is(refreshErr, oauthsvc.ErrWorkBuddyReauthorizationRequired) {
 					h.markGrokCredentialReauthRequired(ctx, selectedCredential.Credential, refreshErr.Error())
@@ -347,10 +350,11 @@ func (h Handler) forwardGatewayRequest(
 				}
 				return result
 			}
-			upstreamKey = accessToken
+			upstreamKey = access.Token
 			// accountID is the per-account value handed to the protocol's
 			// header hook; for WorkBuddy it is the tenant domain.
-			accountID = domain
+			accountID = access.Domain
+			upstreamBaseURL = access.Region.BaseURL
 		}
 
 		payload, err := buildGatewayUpstreamPayload(protocol, request, candidate)
@@ -407,7 +411,7 @@ func (h Handler) forwardGatewayRequest(
 			return result
 		}
 
-		endpoint := protocol.UpstreamPath(candidate.Site.BaseURL)
+		endpoint := protocol.UpstreamPath(upstreamBaseURL)
 		result.upstreamPath = endpointPath(endpoint)
 		result.upstreamURL = endpoint
 		req, err := newUpstreamHTTPRequest(ctx, protocol, endpoint, body)
